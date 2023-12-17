@@ -65,7 +65,7 @@ namespace MindShake {
                 explicit        Wrapper(TFunc f) : func(f) {}
                 virtual         ~Wrapper() { object = nullptr; func = nullptr;     }
 
-                virtual void    operator()(Args&&... args) const {
+                virtual void    operator()(const Args&... args) const {
                     if (object != nullptr)       ((object)->*(method))(args...);
                     else if (func != nullptr)    (*func)(args...);
                 }
@@ -89,7 +89,7 @@ namespace MindShake {
             struct WrapperCFunc : Wrapper {
                 explicit    WrapperCFunc(TFunc f) : Wrapper(f) { Wrapper::type = Wrapper::Type::Function; }
 
-                void        operator()(Args&&... args) const override {
+                void        operator()(const Args&... args) const override {
                     if(Wrapper::func != nullptr)
                         (*Wrapper::func)(args...);
                 }
@@ -99,7 +99,7 @@ namespace MindShake {
             struct WrapperMethod : Wrapper {
                         WrapperMethod() { Wrapper::type = Wrapper::Type::Method; }
 
-                void    operator()(Args&&... args) const override {
+                void    operator()(const Args&... args) const override {
                     if(Wrapper::object != nullptr)
                         ((Wrapper::object)->*(Wrapper::method))(args...);
                 }
@@ -111,7 +111,7 @@ namespace MindShake {
             struct WrapperLambda : Wrapper {
                 explicit WrapperLambda(const Lambda &l) : lambda(l) { Wrapper::type = Wrapper::Type::Lambda; }
 
-                void    operator()(Args&&... args) const override {
+                void    operator()(const Args&... args) const override {
                     if(Wrapper::isEnabled)
                         lambda(args...);
                 }
