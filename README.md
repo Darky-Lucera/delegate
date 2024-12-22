@@ -7,23 +7,28 @@ The Delegate class in C++ is a versatile, easy-to-use, type-safe and header-only
 - Functors
 - Non-static member functions (const or non-const)
 - Lambda functions (with and without captures)
+- std::function
+- std::bind
 
 This utility is derived from an earlier version employed in the **MindShake** video game engine from **Lucera Project**. While I can't recall the precise inception date of the initial class, I developed it prior to the establishment of Lucera in 2009, utilizing C++98. Subsequently, I enhanced it to leverage the features introduced in C++11, a transformation that took place several years ago.
 
-**Note:** In all my tests, the Delegate has demonstrated comparable speed to std::function and, in some cases, even faster performance (depending on the specific scenario and compiler flags). Additionally, it is capable of holding multiple functions.
+**Note:** In all my tests, the Delegate has demonstrated comparable speed to std::function and, in some cases, even faster performance (depending on the specific scenario and compiler flags). Additionally, it is capable of holding multiple functions at the same time.
 
 ## Usage
 
 Just drop the class into your code folder and include it.
 
+**Note:** We now capture exceptions on every call and show information using fprintf. Change it by your own logger.
+
 ## Interface
 
+**Note:** The interface has been changed and the flag lazy for removing a function it is not needed anymore.
+
  - `id       Add(function)`: Adds a function.
- - `bool     Remove(function, bool lazy)`: Lazy delays the deletetion until RemoveLazyDeleted is called (useful in multi-thread environments).
+ - `bool     Remove(function)`: If the delegate is not being executed the function is removed. If it is being executed the function will be disabled and removed when the execution will finish.
  - `bool     RemoveById(id)`: Removes a funtion given its id.
- - `void     RemoveLazyDeleted()`: Deletes functions previously marked for lazy deletion.
  - `void     Clear()`: Removes all functions.
- - `void     operator(...) const`: Runs the functions added.
+ - `void     operator(...) const`: Runs all the functions added.
  - `size_t   GetNumDelegates() const`: Get the number of delegates added.
 
 ## Examples
@@ -66,7 +71,7 @@ int main() {
 }
 ```
 
-If you find yourself needing to distinguish between calling a const or a non-const function, you can employ the helper functions: getNonConstMethod and getConstMethod:
+If you find yourself needing to distinguish between calling a const or a non-const function, you can employ the helper functions: `getNonConstMethod` and `getConstMethod`:
 
 ```cpp
 

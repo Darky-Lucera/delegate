@@ -13,6 +13,7 @@
 #define kCheckBadIndex(func)        kExpected(func, -1)
 
 using namespace std::chrono;
+using namespace std::placeholders;
 
 //--------------------------------------
 template <typename T>
@@ -64,7 +65,7 @@ int
 main(int argc, char *argv[]) {
     Delegate<void()> delegate;
     Class cls1("cls1"), cls2("cls2");
-    const Class constCls1("constCls1"), constCls2("constCls2");
+    const Class constCls1("const Cls1"), constCls2("const Cls2");
     int var = 1234;
 
     auto lambdaSimple1 = []() {
@@ -100,6 +101,9 @@ main(int argc, char *argv[]) {
     auto lambdaSimpleId = delegate.Add(lambdaSimple1);
     delegate.Add(+lambdaSimple2);                                   // This converts a simple lambda to a function pointer
     auto lambdaComplexId = delegate.Add(lambdaComplex);
+    std::function<void()> f = func;
+    auto stdFunc = delegate.Add(f);
+    auto stdBind = delegate.Add(std::bind(&Class::method, &cls2));
 
     // Calling the delegate
     printf("\nCalling delegate:\n");
@@ -128,32 +132,31 @@ main(int argc, char *argv[]) {
 
     // Removing functions
     printf("\nRemoving functions:\n");
-    kCheckFalse(delegate.Remove(nullptr, true));
-    kCheckTrue(delegate.Remove(func, true));
-    kCheckTrue(delegate.Remove(&cls1, true));                             // Functor: calls operator()
-    kCheckTrue(delegate.Remove(&constCls1, true));                        // const Functor: calls operator() const
-    kCheckTrue(delegate.Remove(&cls1, &Class::method, true));
-    kCheckTrue(delegate.Remove(&cls1, &Class::constMethod, true));
-    kCheckTrue(delegate.Remove(&cls1, getNonConstMethod(&Class::method1), true));
-    kCheckTrue(delegate.Remove(&cls1, getConstMethod(&Class::method1), true));
-    kCheckTrue(delegate.Remove(getNonConstMethod(&Class::method1), &cls2, true));
-    kCheckTrue(delegate.Remove(getConstMethod(&Class::method1), &cls2, true));
-    kCheckTrue(delegate.Remove(&constCls1, &Class::method, true));
-    kCheckTrue(delegate.Remove(&constCls1, &Class::constMethod, true));
-    kCheckTrue(delegate.Remove(&constCls1, getNonConstMethod(&Class::method1), true));
-    kCheckTrue(delegate.Remove(&constCls1, getConstMethod(&Class::method1), true));
-    kCheckTrue(delegate.Remove(getNonConstMethod(&Class::method1), &constCls2, true));
-    kCheckTrue(delegate.Remove(getConstMethod(&Class::method1), &constCls2, true));
-    kCheckFalse(delegate.Remove(lambdaSimple1, true));                    // We cannot remove lambdas directly
-    kCheckTrue(delegate.RemoveById(lambdaSimpleId, true));                // Ok
-    kCheckTrue(delegate.Remove(+lambdaSimple2, true));                    // Ok
-    //delegate.Remove(lambdaComplex);                               // We cannot remove complex lambdas in any way (compilation error)
-    kCheckTrue(delegate.RemoveById(lambdaComplexId, true));               // Ok
+    kCheckFalse(delegate.Remove(nullptr));
+    kCheckTrue(delegate.Remove(func));
+    kCheckTrue(delegate.Remove(&cls1));                             // Functor: calls operator()
+    kCheckTrue(delegate.Remove(&constCls1));                        // const Functor: calls operator() const
+    kCheckTrue(delegate.Remove(&cls1, &Class::method));
+    kCheckTrue(delegate.Remove(&cls1, &Class::constMethod));
+    kCheckTrue(delegate.Remove(&cls1, getNonConstMethod(&Class::method1)));
+    kCheckTrue(delegate.Remove(&cls1, getConstMethod(&Class::method1)));
+    kCheckTrue(delegate.Remove(getNonConstMethod(&Class::method1), &cls2));
+    kCheckTrue(delegate.Remove(getConstMethod(&Class::method1), &cls2));
+    kCheckTrue(delegate.Remove(&constCls1, &Class::method));
+    kCheckTrue(delegate.Remove(&constCls1, &Class::constMethod));
+    kCheckTrue(delegate.Remove(&constCls1, getNonConstMethod(&Class::method1)));
+    kCheckTrue(delegate.Remove(&constCls1, getConstMethod(&Class::method1)));
+    kCheckTrue(delegate.Remove(getNonConstMethod(&Class::method1), &constCls2));
+    kCheckTrue(delegate.Remove(getConstMethod(&Class::method1), &constCls2));
+    kCheckFalse(delegate.Remove(lambdaSimple1));                    // We cannot remove lambdas directly
+    kCheckTrue(delegate.RemoveById(lambdaSimpleId));                // Ok
+    kCheckTrue(delegate.Remove(+lambdaSimple2));                    // Ok
+    //delegate.Remove(lambdaComplex);                                     // We cannot remove complex lambdas in any way (compilation error)
+    kCheckTrue(delegate.RemoveById(lambdaComplexId));               // Ok
+    kCheckTrue(delegate.RemoveById(stdBind));                       // Ok
 
     printf("\nCalling delegate:\n");
     delegate();
-
-    delegate.RemoveLazyDeleted();
 
     // rValues
     Delegate<void(std::string)> delegate2;
