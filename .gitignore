@@ -1,5 +1,7 @@
 /build
 /vs
-/mimgw
+/vc
+/mingw
+/macos
 /macosx
 /linux
