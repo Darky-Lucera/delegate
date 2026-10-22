@@ -90,6 +90,11 @@ struct ByValueFunctor {
     void            operator()() const              { ++*calls; }
 };
 
+struct ReturningFunctor {
+    bool            operator()()                    { gLog += "R"; return true; }
+    int             operator()() const              { gLog += "r"; return 1; }
+};
+
 //-------------------------------------
 struct Entity {
     int             hp = 10;
@@ -354,6 +359,27 @@ TEST(Functors) {
 }
 
 //-------------------------------------
+TEST(FunctorsThatReturnAValue) {
+    gLog.clear();
+    Delegate<void()>       d;
+    ReturningFunctor       functor;
+    const ReturningFunctor constFunctor = {};
+    Delegate<void()>       inner;                               // Its operator() returns bool
+
+    inner.Add(&FreeA);
+    d.Add(&functor);
+    d.Add(&constFunctor);
+    d.Add(&inner);
+    d();
+    CHECK(gLog == "Rra");
+
+    CHECK(d.Remove(&functor));
+    CHECK(d.Remove(&constFunctor));
+    CHECK(d.Remove(&inner));
+    CHECK(d.GetNumDelegates() == 0);
+}
+
+//-------------------------------------
 TEST(Lambdas) {
     gLog.clear();
     Delegate<void()> d;
@@ -520,16 +546,40 @@ TEST(ClearOutsideAndDuringACall) {
 
 //-------------------------------------
 TEST(CallsWhileRunningAreIgnored) {
-    Delegate<void(int)> d;
-    int                 calls = 0;
+    Delegate<void(int)>        d;
+    const Delegate<void(int)> &cd = d;
+    int                        calls = 0;
+    bool                       innerResult = true;
+    bool                       innerConstResult = true;
 
-    d.Add([&d, &calls](int depth) {
+    d.Add([&d, &cd, &calls, &innerResult, &innerConstResult](int depth) {
         ++calls;
-        if (depth == 0)
-            d(1);
+        if (depth == 0) {
+            innerResult      = d(1);
+            innerConstResult = cd(1);
+        }
     });
-    d(0);
+    CHECK(d(0));
     CHECK(calls == 1);
+    CHECK(innerResult == false);
+    CHECK(innerConstResult == false);
+    CHECK(cd(2));
+    CHECK(calls == 2);
+}
+
+//-------------------------------------
+TEST(IsRunning) {
+    Delegate<void()>        d;
+    const Delegate<void()> &cd = d;
+    int                     running = 0;
+
+    CHECK(d.IsRunning() == false);
+    d.Add([&d, &running] { running += d.IsRunning() ? 1 : 0; });
+    d.Add([] { throw std::runtime_error("boom"); });
+    d();
+    cd();
+    CHECK(running == 2);
+    CHECK(d.IsRunning() == false);                              // Also after a function throws
 }
 
 //-------------------------------------
@@ -599,6 +649,42 @@ TEST(DestructorUsesTheDelegateWhileItDeletes) {
 }
 
 //-------------------------------------
+// A lambda owns a Subscription that removes another function, x, from the same delegate when it is destroyed.
+// Clear() and the destructor of the delegate destroy that lambda after x, so the Subscription asks to remove
+// x while the delegate is deleting its functions. The delegate must not read the freed x at that moment.
+TEST(DestructorUsesTheDelegateDuringClear) {
+    {
+        gLog.clear();
+        Delegate<void()> d;
+        size_t           x = d.Add([] { gLog += "X"; });
+        {
+            std::shared_ptr<Subscription> sub = std::make_shared<Subscription>();
+            sub->delegate   = &d;
+            sub->idToRemove = x;
+            d.Add([sub] { gLog += "H"; });                      // The only owner of sub after this block
+        }
+        d.Clear();
+        CHECK(d.GetNumDelegates() == 0);
+
+        d.Add([] { gLog += "a"; });
+        d();
+        CHECK(gLog == "a");
+    }
+
+    // Only a sanitizer notices if the destructor reads a wrapper that is already deleted
+    {
+        Delegate<void()> d;
+        size_t           x = d.Add([] {});
+        {
+            std::shared_ptr<Subscription> sub = std::make_shared<Subscription>();
+            sub->delegate   = &d;
+            sub->idToRemove = x;
+            d.Add([sub] {});
+        }
+    }
+}
+
+//-------------------------------------
 TEST(ExceptionsAreCaughtAndLogged) {
     gLog.clear();
     gLogged.clear();
@@ -611,6 +697,29 @@ TEST(ExceptionsAreCaughtAndLogged) {
     CHECK(gLog == "after");                                     // The next functions still run
     CHECK(gLogged.find("boom") != std::string::npos);
     CHECK(gLogged.find("Unknown exception") != std::string::npos);
+}
+
+//-------------------------------------
+// The running function grows the vector, and then throws: the log must still get its id
+TEST(AddThatGrowsTheVectorDuringACall) {
+    gLog.clear();
+    gLogged.clear();
+    Delegate<void()> d;
+    int              captured = 1000;
+
+    d.Add(&FreeA);
+    size_t growerId = d.Add([&d, captured] {
+        for (int i = 0; i < captured; ++i) {
+            d.Add(&FreeB);
+        }
+        throw std::runtime_error("grown");
+    });
+    d.Add(&FreeA);
+
+    d();
+    CHECK(gLog == "aa");                                        // Functions added during a call run from the next one
+    CHECK(gLogged.find("function " + std::to_string(growerId) + ": grown") != std::string::npos);
+    CHECK(d.GetNumDelegates() == 1003);
 }
 
 //-------------------------------------

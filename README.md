@@ -6,7 +6,7 @@ It can hold:
 
 - Free functions and static member functions, including overloaded and `noexcept` ones
 - Member functions, const or non-const, including virtual, inherited and `noexcept` ones, and ones with a `&` or `const &` qualifier
-- Functors (objects with an `operator()`), by pointer or by value
+- Functors (objects with an `operator()`), by pointer or by value. If `operator()` returns a value, it is ignored, so a delegate can hold another delegate
 - Lambdas, with or without captures, including `mutable` and generic ones (generic lambdas need C++14)
 - `std::function` and the result of `std::bind`
 
@@ -14,7 +14,7 @@ You can also remove a function after you add it. This is the main reason the cla
 
 This class comes from an older version used in the **MindShake** game engine of **Lucera Project**. I do not remember exactly when I wrote the first version, but it was before Lucera started in 2009, and it used C++98. Some years ago I updated it to C++11.
 
-**Note:** Each call to a `Delegate` has a small fixed cost, a few nanoseconds, because it lets you add and remove functions while it runs. So with very small functions, calling a `Delegate` that holds several of them is slower than calling the same number of `std::function`. With functions that do real work, the difference is small.
+**Note:** Each call to a `Delegate` has a small fixed cost, a few nanoseconds. It pays for letting the functions add or remove functions while the delegate runs, ignoring calls made while it is running, and catching exceptions. So with very small functions, a `Delegate` is slower than a `std::vector` of `std::function` that holds the same functions: about 2 times slower with 3 functions, and between 5% and 30% slower with 30, depending on the compiler. With functions that do real work, the difference is small. `main.cpp` measures it.
 
 ## Usage
 
@@ -32,20 +32,21 @@ If a function throws an exception, the delegate catches it, prints it with `fpri
 - `size_t Add(function)`: Adds a function and returns its id. Returns `size_t(-1)` if the function, the object or the method is null, or if the `std::function` is empty.
 - `bool Remove(function)`: Removes a function. Returns `false` if it is not found. If the delegate is running, the function is not called again, and it is deleted when the call finishes.
 - `bool RemoveById(id)`: Removes the function with the id that `Add` returned. Ids are unique within each delegate.
-- `void Clear()`: Removes all functions. It is safe to call it from one of the functions.
-- `void operator()(args...)`: Calls all the functions, in the order they were added. Functions added during a call run from the next call.
-- `void operator()(args...) const`: The same, for a delegate used through a const reference. Functions removed during this call are not called again, but they are freed by the next call through a non-const reference.
+- `void Clear()`: Removes all functions. It is safe to call it from one of the functions. When it deletes a lambda, the destructors of what the lambda captured can remove functions from the same delegate.
+- `bool operator()(args...)`: Calls all the functions, in the order they were added. Functions added during a call run from the next call. Returns `false` if the call was ignored because the delegate was already running.
+- `bool operator()(args...) const`: The same, for a delegate used through a const reference. Functions removed during this call are not called again, but they are freed by the next call through a non-const reference.
 - `size_t GetNumDelegates() const`: Returns the number of functions.
+- `bool IsRunning() const`: Returns `true` while the delegate is calling its functions. A call made then is ignored.
 
 ## Examples
 
-`main.cpp` adds, calls and removes every kind of supported function.
+`main.cpp` adds, calls and removes every kind of supported function. At the end, it compares the speed of a `Delegate` with a `std::vector` of `std::function`.
 
 ## Tests
 
 `tests/` has the unit tests. They need nothing but the standard library. Build the project with CMake and run them with `ctest`:
 
-```
+```sh
 cmake -S . -B build
 cmake --build build --config Release
 ctest --test-dir build -C Release --output-on-failure
@@ -208,6 +209,16 @@ onValue(0);             // Prints only "value 0"
 ```
 
 The same happens if another thread calls the delegate while it is running. A lambda that calls itself directly, without going through the delegate, works as usual.
+
+`operator()` returns `false` when it ignores a call. For example, to keep the event and send it later:
+
+```cpp
+if (onValue(value) == false) {
+    pendingValues.push_back(value);
+}
+```
+
+`IsRunning()` tells you the same thing before the call. But if another thread calls the delegate, it can start running between `IsRunning()` and your call. Only the value that `operator()` returns is always right.
 
 ### It is not thread-safe
 

@@ -15,8 +15,9 @@ static int gFailAt       = -1;
 
 void *
 operator new(size_t size) {
-    if (++gAllocations == gFailAt)
+    if (++gAllocations == gFailAt) {
         throw std::bad_alloc();
+    }
 
     if (void *p = std::malloc(size == 0 ? 1 : size)) {
         ++gLive;

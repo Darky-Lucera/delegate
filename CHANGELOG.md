@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+### Delegate.h
+
+- Fix a use-after-free in `Clear()` and the destructor: when deleting a lambda destroyed an object that removed a function from the same delegate, `Remove()` read wrappers that were already freed.
+- `operator()` returns `bool`: `false` if the call was ignored because the delegate was already running. Code that ignores the result does not change.
+- `Add()` and `Remove()` with a pointer to a functor accept an `operator()` that returns a value, and ignore that value. So a `Delegate<void()>` can still be added to another one, now that its `operator()` returns `bool`.
+- Add `IsRunning()`, to know before a call if it would be ignored. With several threads, only the value that `operator()` returns is always right.
+- `kDelegateVersion` is now `20261022`.
+
+### Tests and build
+
+- Add the `DestructorUsesTheDelegateDuringClear` test.
+- Add the `AddThatGrowsTheVectorDuringACall` test: a function adds 1000 functions during a call, and then throws.
+- Add the `IsRunning` test.
+- Add the `FunctorsThatReturnAValue` test, which also adds a delegate to another one.
+
+### Other
+
+- `main.cpp` compared a delegate with 3 functions against 3 separate `std::function` calls, which made the delegate look more than 2 times slower. It now compares it with a `std::vector` of `std::function` that holds the same functions, with 3 and 30 functions, and shows the best of 5 runs in ns per call.
+- README: the performance note gives the measured numbers, and `Clear()` says that the destructors of what a lambda captured can remove functions from the same delegate.
+
 ## 1.1.0 (2026-10-20)
 
 ### Breaking changes

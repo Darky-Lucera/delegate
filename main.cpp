@@ -1,9 +1,11 @@
 #include <Delegate.h>
+#include <algorithm>
+#include <cstdint>
 #include <functional>
 #include <cstdio>
 #include <string>
 #include <chrono>
-#include <functional>
+#include <vector>
 
 #define kExpected(func, value)      { if ((func) != (value)) { fprintf(stderr, "Error: %s\n", #func); } }
 #define kNotExpected(func, value)   { if ((func) == (value)) { fprintf(stderr, "Error: %s\n", #func); } }
@@ -30,6 +32,24 @@ GetTime(T time) {
 static inline high_resolution_clock::time_point
 Now() {
     return high_resolution_clock::now();
+}
+
+//--------------------------------------
+// The best of several runs, so a context switch or a frequency change does not hide the real cost
+template <typename Func>
+double
+GetNsPerCall(size_t times, Func func) {
+    uint32_t best = UINT32_MAX;
+
+    for (int run = 0; run < 5; ++run) {
+        auto timeStamp = Now();
+        for (size_t i = 0; i < times; ++i) {
+            func();
+        }
+        best = std::min(best, GetTime(Now() - timeStamp));
+    }
+
+    return best / double(times);
 }
 
 //-------------------------------------
@@ -311,35 +331,42 @@ main(int argc, char *argv[]) {
 
     // References && performance
     constexpr const size_t times = 1000000;
-    int value = 0;
 
-    Delegate<void(int &)> delegate3;
-    delegate3.Add(inc);
-    delegate3.Add(&cls1, &Class::inc);
-    delegate3.Add([](int &var) { ++var; });
+    printf("\nCalling the same functions %u times, in ns per call:\n", unsigned(times));
+    printf("  Functions   Delegate   std::vector<std::function>   Delegate / vector\n");
+    for (int numFunctions : { 3, 30 }) {
+        Delegate<void(int &)>                   delegateN;
+        std::vector<std::function<void(int &)>> functions;
 
-    auto timeStamp1 = Now();
-    for(size_t i=0; i<times; ++i)
-        delegate3(value);
-    auto time1 = Now() - timeStamp1;
-    kExpected(value, 3*times);
+        for (int i = 0; i < numFunctions; i += 3) {
+            delegateN.Add(inc);
+            delegateN.Add(&cls1, &Class::inc);
+            delegateN.Add([](int &var) { ++var; });
 
-    value = 0;
-    std::function<void(int &)> funct  = inc;
-    std::function<void(int &)> member = std::bind(&Class::inc, &cls1, std::placeholders::_1);
-    std::function<void(int &)> lambda = [](int &var) { ++var; };
+            functions.emplace_back(inc);
+            functions.emplace_back(std::bind(&Class::inc, &cls1, std::placeholders::_1));
+            functions.emplace_back([](int &var) { ++var; });
+        }
 
-    auto timeStamp2 = Now();
-    for(size_t i=0; i<times; ++i) {
-        funct(value);
-        member(value);
-        lambda(value);
+        int value = 0;
+        double delegateTime = GetNsPerCall(times, [&] { delegateN(value); });
+        kExpected(value, 5 * numFunctions * int(times));
+
+        value = 0;
+        double vectorTime = GetNsPerCall(times, [&] {
+            for (const auto &function : functions) {
+                function(value);
+            }
+        });
+        kExpected(value, 5 * numFunctions * int(times));
+
+        printf("  %9d   %8.2f   %26.2f   %16.2fx\n", numFunctions, delegateTime, vectorTime, delegateTime / vectorTime);
     }
-    auto time2 = Now() - timeStamp2;
-    kExpected(value, 3*times);
 
-    printf("Time Delegate:      %d\n", GetTime(time1));
-    printf("Time std::function: %d\n", GetTime(time2));
+    printf("\nEach call to the delegate has a fixed cost, so the difference matters most when it holds few\n"
+           "functions. That cost pays for letting the functions add or remove functions while it runs,\n"
+           "ignoring calls made while it is running, and catching exceptions. A vector of std::function\n"
+           "does none of that.\n");
 
     return 0;
 }

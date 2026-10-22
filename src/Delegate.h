@@ -29,7 +29,7 @@ namespace MindShake {
 
     // Version
     //---------------------------------
-    static constexpr uint32_t kDelegateVersion = 20261020;
+    static constexpr uint32_t kDelegateVersion = 20261022;
 
     // Macros
     //---------------------------------
@@ -122,8 +122,9 @@ namespace MindShake {
                 explicit WrapperCFunc(TFunc f) : func(f) { Wrapper::type = Wrapper::Type::Function; }
 
                 void     operator()(const Args&... args) const override {
-                    if (func != nullptr)
+                    if (func != nullptr) {
                         (*func)(args...);
+                    }
                 }
 
                 void     ToBeRemoved() override { Wrapper::ToBeRemoved(); func = nullptr; }
@@ -143,8 +144,9 @@ namespace MindShake {
                         }
 
                 void    operator()(const Args&... args) const override {
-                    if (object != nullptr)
+                    if (object != nullptr) {
                         (object->*method)(args...);
+                    }
                 }
 
                 void    ToBeRemoved() override { Wrapper::ToBeRemoved(); object = nullptr; }
@@ -160,8 +162,9 @@ namespace MindShake {
                 explicit WrapperLambda(const Lambda &l) : lambda(l) { Wrapper::type = Wrapper::Type::Lambda; }
 
                 void     operator()(const Args&... args) const override {
-                    if (Wrapper::isEnabled)
+                    if (Wrapper::isEnabled) {
                         lambda(args...);
+                    }
                 }
 
                 mutable Lambda lambda;
@@ -172,8 +175,9 @@ namespace MindShake {
                 explicit WrapperStdFunction(const std::function<void(Args...)> &func) : function(func) { Wrapper::type = Wrapper::Type::StdFunction; }
 
                 void     operator()(const Args&... args) const override {
-                    if (Wrapper::isEnabled)
+                    if (Wrapper::isEnabled) {
                         function(args...);
+                    }
                 }
 
                 std::function<void(Args...)> function;
@@ -185,17 +189,24 @@ namespace MindShake {
             static Class *
                                 UnConst(const Class *object)                          { return const_cast<Class *>(object);                          }
 
+            // The wrapper ignores what operator() returns, so a functor can return any type
             template <typename Class>
-            static ConstMethodArg<Class, Args...>
+            using CallOperatorPtr      = decltype(std::declval<Class &>()(std::declval<Args>()...)) (Class::*)(Args...);
+
+            template <typename Class>
+            using ConstCallOperatorPtr = decltype(std::declval<const Class &>()(std::declval<Args>()...)) (Class::*)(Args...) const;
+
+            template <typename Class>
+            static ConstCallOperatorPtr<Class>
                                 GetConstCallOperator()                                { return &Class::operator();                                   }
 
             // Same choice as a call on a non-const object: the non-const operator() if it exists, else the const one.
             template <typename Class>
-            static auto         GetCallOperator(int) -> decltype(static_cast<MethodArg<Class, Args...>>(&Class::operator()))
+            static auto         GetCallOperator(int) -> decltype(static_cast<CallOperatorPtr<Class>>(&Class::operator()))
                                                                                       { return &Class::operator();                                   }
 
             template <typename Class>
-            static ConstMethodArg<Class, Args...>
+            static ConstCallOperatorPtr<Class>
                                 GetCallOperator(long)                                 { return GetConstCallOperator<Class>();                        }
 
         public:
@@ -214,8 +225,8 @@ namespace MindShake {
 
             size_t              Add(TFunc func);
 
-            kEnableIfClassSizeT Add(      Class *object)                              { return Add(object, GetCallOperator<Class>(0));               }
-            kEnableIfClassSizeT Add(const Class *object)                              { return Add(object, GetConstCallOperator<Class>());           }
+            kEnableIfClassSizeT Add(      Class *object)                              { return AddMethod(object, GetCallOperator<Class>(0));                  }
+            kEnableIfClassSizeT Add(const Class *object)                              { return AddMethod(UnConst(object), GetConstCallOperator<Class>());     }
             kEnableIfBaseSizeT  Add(      Object *object, kMethod(method))            { return AddMethod(static_cast<Class *>(object), method);                }
             kEnableIfBaseSizeT  Add(const Object *object, kMethod(method))            { return AddMethod(UnConst(static_cast<const Class *>(object)), method); }
             kEnableIfBaseSizeT  Add(      Object *object, kMethod(method) const)      { return AddMethod(static_cast<Class *>(object), method);                }
@@ -252,8 +263,8 @@ namespace MindShake {
 
             bool                Remove(TFunc func)                                    { return RemoveIndex(Find(func));                              }
 
-            kEnableIfClassBool  Remove(      Class *object)                           { return RemoveIndex(Find(object, GetCallOperator<Class>(0)));                   }
-            kEnableIfClassBool  Remove(const Class *object)                           { return RemoveIndex(Find(UnConst(object), GetConstCallOperator<Class>()));      }
+            kEnableIfClassBool  Remove(      Class *object)                           { return RemoveIndex(FindMethod(object, GetCallOperator<Class>(0)));              }
+            kEnableIfClassBool  Remove(const Class *object)                           { return RemoveIndex(FindMethod(UnConst(object), GetConstCallOperator<Class>())); }
             kEnableIfBaseBool   Remove(      Object *object, kMethod(method))         { return RemoveIndex(Find(object, method));                    }
             kEnableIfBaseBool   Remove(const Object *object, kMethod(method))         { return RemoveIndex(Find(object, method));                    }
             kEnableIfBaseBool   Remove(      Object *object, kMethod(method) const)   { return RemoveIndex(Find(object, method));                    }
@@ -279,17 +290,20 @@ namespace MindShake {
             //-------------------------
             // operator()
             //-------------------------
-            // A call to operator() while it is already running (from a callback or another thread) is ignored.
+            // A call to operator() while it is already running (from a callback or another thread) is ignored,
+            // and returns false.
             //
             // Only the non-const version frees the functions removed during the call.
             //-------------------------
-            void                operator()(const Args&... args);
-            void                operator()(const Args&... args) const;
+            bool                operator()(const Args&... args);
+            bool                operator()(const Args&... args) const;
 
             //-------------------------
             // Other
             //-------------------------
             size_t              GetNumDelegates() const                                 { return mWrappers.size() - mNumToRemove;                      }
+
+            bool                IsRunning() const                                       { return mIsRunning.load(std::memory_order_relaxed);           }
 
             void                Clear();
 
@@ -302,8 +316,8 @@ namespace MindShake {
 
             ptrdiff_t           Find(const TFunc func) const;
 
-            kEnableIfClassDiffT Find(Class *object) const                               { return Find(object, GetCallOperator<Class>(0));              }
-            kEnableIfClassDiffT Find(const Class *object) const                         { return Find(object, GetConstCallOperator<Class>());          }
+            kEnableIfClassDiffT Find(Class *object) const                               { return FindMethod(object, GetCallOperator<Class>(0));                  }
+            kEnableIfClassDiffT Find(const Class *object) const                         { return FindMethod(UnConst(object), GetConstCallOperator<Class>());     }
             kEnableIfBaseDiffT  Find(Object *object, kMethod(method)) const             { return FindMethod(static_cast<Class *>(object), method);                }
             kEnableIfBaseDiffT  Find(Object *object, kMethod(method) const) const       { return FindMethod(static_cast<Class *>(object), method);                }
             kEnableIfBaseDiffT  Find(const Object *object, kMethod(method)) const       { return FindMethod(UnConst(static_cast<const Class *>(object)), method); }
@@ -394,8 +408,9 @@ namespace MindShake {
     template <typename Class, typename MethodPtr>
     inline size_t
     Delegate<void(Args...)>::AddMethod(Class *object, MethodPtr method) {
-        if (object == nullptr || method == nullptr)
+        if (object == nullptr || method == nullptr) {
             return size_t(-1);
+        }
 
         return AddWrapper(new WrapperMethod<Class, MethodPtr>(object, method));
     }
@@ -462,7 +477,7 @@ namespace MindShake {
 
     //---------------------------------
     template <typename ...Args>
-    void
+    bool
     Delegate<void(Args...)>::operator()(const Args&... args) {
         // acquire/release is the ordering a lock needs. The default seq_cst store would be
         // a second locked instruction on x86, which made every call measurably slower.
@@ -474,17 +489,25 @@ namespace MindShake {
             }
 
             mIsRunning.store(false, std::memory_order_release);
+
+            return true;
         }
+
+        return false;
     }
 
     //---------------------------------
     template <typename ...Args>
-    void
+    bool
     Delegate<void(Args...)>::operator()(const Args&... args) const {
         if (mIsRunning.exchange(true, std::memory_order_acquire) == false) {
             CallAll(args...);
             mIsRunning.store(false, std::memory_order_release);
+
+            return true;
         }
+
+        return false;
     }
 
     //---------------------------------
@@ -564,12 +587,15 @@ namespace MindShake {
             return;
         }
 
-        for (auto *w : mWrappers) {
+        // Deleting a lambda destroys what it captured, and that code may use this delegate again.
+        // Taking the wrappers out first means it never sees one that is already freed.
+        std::vector<Wrapper *> wrappers;
+        wrappers.swap(mWrappers);
+        mNumToRemove = 0;
+
+        for (auto *w : wrappers) {
             delete w;
         }
-
-        mWrappers.clear();
-        mNumToRemove = 0;
     }
 
 } // end of namespace
