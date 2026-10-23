@@ -685,6 +685,28 @@ TEST(DestructorUsesTheDelegateDuringClear) {
 }
 
 //-------------------------------------
+// The same Subscription, but its lambda is removed outside a call. Deleting the lambda removes x, which is
+// before it in the vector, so the index of the lambda is no longer valid after the delete.
+TEST(DestructorUsesTheDelegateDuringRemove) {
+    gLog.clear();
+    Delegate<void()> d;
+    size_t           x = d.Add([] { gLog += "X"; });
+    size_t           h = 0;
+    {
+        std::shared_ptr<Subscription> sub = std::make_shared<Subscription>();
+        sub->delegate   = &d;
+        sub->idToRemove = x;
+        h = d.Add([sub] { gLog += "H"; });                      // The only owner of sub after this block
+    }
+    d.Add([] { gLog += "a"; });
+
+    CHECK(d.RemoveById(h));
+    CHECK(d.GetNumDelegates() == 1);
+    d();
+    CHECK(gLog == "a");
+}
+
+//-------------------------------------
 TEST(ExceptionsAreCaughtAndLogged) {
     gLog.clear();
     gLogged.clear();

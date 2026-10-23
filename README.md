@@ -29,7 +29,7 @@ If a function throws an exception, the delegate catches it, prints it with `fpri
 
 ## Interface
 
-- `size_t Add(function)`: Adds a function and returns its id. Returns `size_t(-1)` if the function, the object or the method is null, or if the `std::function` is empty.
+- `size_t Add(function)`: Adds a function and returns its id. Returns `size_t(-1)` if the function, the object or the method is null, if the `std::function` is empty, or if the delegate is being destroyed.
 - `bool Remove(function)`: Removes a function. Returns `false` if it is not found. If the delegate is running, the function is not called again, and it is deleted when the call finishes.
 - `bool RemoveById(id)`: Removes the function with the id that `Add` returned. Ids are unique within each delegate.
 - `void Clear()`: Removes all functions. It is safe to call it from one of the functions. When it deletes a lambda, the destructors of what the lambda captured can remove functions from the same delegate.

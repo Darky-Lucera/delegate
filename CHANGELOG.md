@@ -1,6 +1,18 @@
 # Changelog
 
-## Unreleased
+## 1.2.1 (2026-10-23)
+
+### Delegate.h
+
+- Fix `Remove()` outside a call. If deleting a lambda destroyed an object that removed another function from the same delegate, `Remove()` could erase the wrong function and keep a freed one.
+- While the delegate is being destroyed, `Add()` returns `size_t(-1)` and a move into it does nothing. Before, the functions added or moved in at that moment were never freed.
+- `kDelegateVersion` is now `20261023`.
+
+### Tests
+
+- Add the `DestructorUsesTheDelegateDuringRemove`, `AddDuringTheDestructorDoesNotLeak` and `MoveDuringTheDestructorDoesNotLeak` tests.
+
+## 1.2.0 (2026-10-22)
 
 ### Delegate.h
 
